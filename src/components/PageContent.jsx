@@ -303,7 +303,7 @@ function DuoSpreadLayout({ data, isUnderlay, parallaxX, parallaxY }) {
           alignItems: "center",
           justifyContent: "center",
           gap: "clamp(0.6rem, 2vw, 1.4rem)",
-          padding: "clamp(2.2rem, 8%, 3.5rem) clamp(1rem, 4%, 2.5rem) clamp(2.8rem, 10%, 4rem)",
+          padding: "clamp(2.2rem, 8%, 3.5rem) clamp(1rem, 4%, 2.5rem) clamp(4.5rem, 14%, 6rem)",
         }}
       >
         {photos.map((photo, i) => (
@@ -396,6 +396,11 @@ function DuoSpreadLayout({ data, isUnderlay, parallaxX, parallaxY }) {
               opacity: 0.8,
               margin: 0,
               lineHeight: 1.4,
+              maxWidth: "100%",
+              overflow: "hidden",
+              wordBreak: "break-word",
+              padding: "0 0.5rem",
+              textAlign: "center",
             }}
           >
             {caption}
@@ -420,11 +425,14 @@ function DuoSpreadLayout({ data, isUnderlay, parallaxX, parallaxY }) {
 }
 
 /* ─── POLAROID COLLAGE ──────────────────────────────────────────────────────── */
-// Scattered polaroid cards, each slightly rotated — feels like a pile of prints
+/* ─── POLAROID COLLAGE ──────────────────────────────────────────────────────── */
+// Scattered polaroid cards — W-shaped arrangement so 5 cards don't pile on each other
 const POLAROID_POSITIONS = [
-  { top: "12%",  left: "6%",   zIndex: 2 },
-  { top: "18%",  right: "5%",  zIndex: 3 },
-  { bottom: "12%", left: "50%", transform: "translateX(-50%)", zIndex: 1 },
+  { top: "8%",     left: "5%",              zIndex: 2 }, // top-left
+  { top: "6%",     right: "4%",             zIndex: 3 }, // top-right
+  { top: "30%",    left: "50%", transform: "translateX(-50%)", zIndex: 4 }, // centre
+  { bottom: "8%",  left: "6%",              zIndex: 2 }, // bottom-left
+  { bottom: "6%",  right: "5%",             zIndex: 3 }, // bottom-right
 ];
 
 function PolaroidCollage({ data, isUnderlay }) {
@@ -478,7 +486,10 @@ function PolaroidCollage({ data, isUnderlay }) {
             }}
             style={{
               position: "absolute",
-              ...pos,
+              // Spread all position props EXCEPT transform (conflicts with Framer rotate)
+              ...(({ transform: _t, ...rest }) => rest)(pos),
+              // Centre card: left:50% needs a negative margin offset (transform would fight Framer)
+              ...(pos.transform === "translateX(-50%)" ? { marginLeft: "clamp(-100px,-18%,-50px)" } : {}),
               width: "clamp(100px, 36%, 200px)",
               background: "#f0e8d8",
               padding: "clamp(4px, 1.2vw, 8px)",

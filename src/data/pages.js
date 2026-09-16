@@ -94,8 +94,11 @@ export const pages = [
     type: "collage",
     chapterLabel: "bonus reel.",
     photos: [
-      { src: "/images/photo-10.jpg", rotation: -5.5, label: "no filter", year: "25" },
+      { src: "/images/photo-10.jpg", rotation: -5.5, label: "no filter",   year: "25" },
       { src: "/images/photo-11.jpg", rotation:  4.2, label: "golden hour", year: "25" },
+      { src: "/images/photo-12.jpg", rotation: -2.8, label: "candid",      year: "25" },
+      { src: "/images/photo-13.jpg", rotation:  6.1, label: "unscripted",  year: "25" },
+      { src: "/images/photo-14.jpg", rotation: -3.5, label: "just us",     year: "25" },
     ],
     caption: null,
     year: "2025",
