@@ -226,7 +226,7 @@ export default function Landing({ onOpen }) {
             zIndex: 1,
           }}
         >
-          Open
+          Let's go
         </span>
       </motion.button>
     </motion.div>

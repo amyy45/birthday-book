@@ -1,45 +1,48 @@
-// App.jsx — Root state machine (v2)
-// States: "landing" → "cover" → "book"
+// App.jsx — Root state machine (v3)
+// States: "landing" → "cover" → "book" → "closing"
 //
 // Transition choreography:
-//   landing → cover:  Landing shrinks+blurs OUT (0.65s), then Cover materialises IN (0.78s spring)
-//   cover → book:     Cover shrinks OUT (0.5s), Book scales IN with slight y-rise (0.78s spring)
-//   book → cover:     Book shrinks OUT, Cover reappears
-//
-// AnimatePresence mode="wait" guarantees the exit animation fully
-// completes before the next scene mounts — no jarring overlap.
+//   landing  → cover:   Landing shrinks+blurs OUT, Cover materialises IN
+//   cover    → book:    Cover shrinks OUT, Book scales IN
+//   book     → closing: Book exit, ClosingSequence fades in
+//   closing  → book:    ClosingSequence fades out, Book mounts at page 0
 
 import { useState } from "react";
 import { AnimatePresence } from "framer-motion";
-import Landing from "./components/Landing.jsx";
-import BookCover from "./components/BookCover.jsx";
-import Book from "./components/Book.jsx";
-import GrainOverlay from "./components/GrainOverlay.jsx";
+import Landing         from "./components/Landing.jsx";
+import BookCover       from "./components/BookCover.jsx";
+import Book            from "./components/Book.jsx";
+import ClosingSequence from "./components/ClosingSequence.jsx";
+import GrainOverlay    from "./components/GrainOverlay.jsx";
 import AmbientBackground from "./components/AmbientBackground.jsx";
-import AudioToggle from "./components/AudioToggle.jsx";
+import AudioToggle     from "./components/AudioToggle.jsx";
 
 const SCENES = {
   LANDING: "landing",
   COVER:   "cover",
   BOOK:    "book",
+  CLOSING: "closing",
 };
 
 export default function App() {
-  const [scene, setScene] = useState(SCENES.LANDING);
+  const [scene, setScene]       = useState(SCENES.LANDING);
+  // bookEpoch increments on replay so Book remounts fresh at page 0
+  const [bookEpoch, setBookEpoch] = useState(0);
 
-  // Each handler is a clean setter — scene transitions are synchronous
-  const openCover = () => setScene(SCENES.COVER);
-  const openBook  = () => setScene(SCENES.BOOK);
-  const closeBook = () => setScene(SCENES.COVER);
+  const openCover     = () => setScene(SCENES.COVER);
+  const openBook      = () => setScene(SCENES.BOOK);
+  const closeToEnding = () => setScene(SCENES.CLOSING);
+  const replayBook    = () => {
+    setBookEpoch((n) => n + 1); // force fresh Book mount
+    setScene(SCENES.BOOK);
+  };
 
   return (
     <>
-      {/* Always-present atmosphere layers (z-index: 0 and 9999) */}
       <AmbientBackground />
       <GrainOverlay />
       <AudioToggle />
 
-      {/* Scene router — mode="wait" ensures clean sequential transitions */}
       <AnimatePresence mode="wait">
         {scene === SCENES.LANDING && (
           <Landing key="landing" onOpen={openCover} />
@@ -50,7 +53,12 @@ export default function App() {
         )}
 
         {scene === SCENES.BOOK && (
-          <Book key="book" onClose={closeBook} />
+          // bookEpoch in key forces a clean remount on replay
+          <Book key={`book-${bookEpoch}`} onClose={closeToEnding} />
+        )}
+
+        {scene === SCENES.CLOSING && (
+          <ClosingSequence key="closing" onReplay={replayBook} />
         )}
       </AnimatePresence>
     </>

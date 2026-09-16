@@ -1,14 +1,12 @@
-// Book.jsx — page-flip orchestrator (v3 — mobile-first polish)
+// Book.jsx — page-flip orchestrator (v4)
 //
-// Changes vs v2:
-//  • Click zones: 30% width (was 20%) + min 48px tap height for mobile thumbs
-//  • Swipe hook updated: uses { ref, isSwiping } destructure (new hook API)
-//  • Closing sequence (replay): `useAnimate` on the book container plays:
-//      shake → scale-down + blur → reset pages → scale-up → done
-//  • Close / replay buttons moved to within safe thumb reach on mobile
-//  • All buttons: WebkitTapHighlightColor cleared, whileTap feedback
-//  • touch-action: none on the book stage prevents scroll interference
-//  • will-change and -webkit-backface-visibility on key 3D elements
+// Changes vs v3:
+//  • pages.js now has 9 pages (indices 0-8); last page (index 8) is the letter
+//  • When on the letter page (isFinal), right ClickZone is hidden and a
+//    "close" indicator appears after the letter finishes animating (~3.5s)
+//    — tapping it calls onClose() which now transitions to ClosingSequence
+//  • Left ClickZone works normally on the letter page (can go back)
+//  • Everything else (flip mechanic, swipe, keyboard) unchanged
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import {
@@ -25,6 +23,8 @@ export default function Book({ onClose }) {
   const [currentPage,   setCurrentPage]   = useState(0);
   const [underlayIndex, setUnderlayIndex] = useState(null);
   const [isFlipping,    setIsFlipping]    = useState(false);
+  // Track whether the letter has finished revealing (for the close indicator)
+  const [letterRevealed, setLetterRevealed] = useState(false);
   const totalPages = pages.length;
 
   // ── Book-container scope for closing animation ───────────────────────────
@@ -34,10 +34,10 @@ export default function Book({ onClose }) {
   const rotY = useMotionValue(0);
 
   // Derived warp + lighting from rotY
-  const skewY        = useTransform(rotY, [-180,-135,-90,-45,0], [0, 2.8, 0, -2.8, 0]);
-  const rotX         = useTransform(rotY, [-180,-90,0],          [0, 1.5, 0]);
-  const foldShadow   = useTransform(rotY, [-180,-90,-30,0],      [0, 0, 0.52, 0]);
-  const castShadow   = useTransform(rotY, [-180,-130,-90,-50,0], [0, 0.35, 0.55, 0.35, 0]);
+  const skewY      = useTransform(rotY, [-180,-135,-90,-45,0], [0, 2.8, 0, -2.8, 0]);
+  const rotX       = useTransform(rotY, [-180,-90,0],          [0, 1.5, 0]);
+  const foldShadow = useTransform(rotY, [-180,-90,-30,0],      [0, 0, 0.52, 0]);
+  const castShadow = useTransform(rotY, [-180,-130,-90,-50,0], [0, 0.35, 0.55, 0.35, 0]);
 
   // ── Flip sequencer ───────────────────────────────────────────────────────
   const flipInProgress = useRef(false);
@@ -47,6 +47,7 @@ export default function Book({ onClose }) {
     if (targetIndex < 0 || targetIndex >= totalPages) return;
 
     flipInProgress.current = true;
+    setLetterRevealed(false); // reset letter reveal on any flip
     setUnderlayIndex(targetIndex);
     setIsFlipping(true);
 
@@ -70,32 +71,49 @@ export default function Book({ onClose }) {
   const goNext = useCallback(() => triggerFlip(currentPage + 1), [triggerFlip, currentPage]);
   const goPrev = useCallback(() => triggerFlip(currentPage - 1), [triggerFlip, currentPage]);
 
-  // ── Replay — closing sequence ─────────────────────────────────────────────
+  // ── Letter reveal timer ───────────────────────────────────────────────────
+  // When the letter page is reached, wait for all paragraphs to animate in
+  // (stagger: 0.9 + n*0.55 + 0.3 for signoff + 1s buffer) then show close cue
+  const currentPageData = pages[currentPage];
+  const isLetterPage = currentPageData?.type === "letter";
+
+  useEffect(() => {
+    if (!isLetterPage || isFlipping) return;
+    setLetterRevealed(false);
+
+    const paragraphCount = currentPageData?.paragraphs?.length ?? 3;
+    const revealDuration = 0.9 + paragraphCount * 0.55 + 0.3 + 1.2; // seconds
+    const timer = setTimeout(() => setLetterRevealed(true), revealDuration * 1000);
+    return () => clearTimeout(timer);
+  }, [isLetterPage, isFlipping, currentPage, currentPageData]);
+
+  // ── Replay — book closes, resets to page 0 ───────────────────────────────
   const replay = useCallback(async () => {
     if (flipInProgress.current) return;
     flipInProgress.current = true;
 
     const el = bookScope.current;
 
-    // 1. Rumble (pages rustling shut feeling)
+    // Rumble
     await bookAnimate(el,
       { rotateZ: [0, -1.2, 1.4, -1, 1, -0.5, 0] },
       { duration: 0.55, ease: "easeInOut" }
     );
 
-    // 2. Book closes (scale-down + blur out)
+    // Scale-down + blur out
     await bookAnimate(el,
       { scale: 0.86, opacity: 0, filter: "blur(5px)" },
       { duration: 0.42, ease: [0.4, 0, 1, 1] }
     );
 
-    // 3. Reset state instantly (invisible while blurred)
+    // Reset state
     setCurrentPage(0);
     setUnderlayIndex(null);
     setIsFlipping(false);
+    setLetterRevealed(false);
     rotY.set(0);
 
-    // 4. Book reopens
+    // Reopen
     await bookAnimate(el,
       { scale: 1, opacity: 1, filter: "blur(0px)" },
       { duration: 0.65, ease: [0.16, 1, 0.3, 1] }
@@ -115,7 +133,7 @@ export default function Book({ onClose }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [goNext, goPrev, onClose]);
 
-  // ── Touch swipe (updated hook returns { ref, isSwiping }) ────────────────
+  // ── Touch swipe ──────────────────────────────────────────────────────────
   const { ref: swipeRef } = useSwipe({ onSwipeLeft: goNext, onSwipeRight: goPrev });
 
   const isLastPage   = currentPage === totalPages - 1;
@@ -137,11 +155,10 @@ export default function Book({ onClose }) {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        // Capture all touch events — prevents page scroll during swipe
         touchAction: "none",
       }}
     >
-      {/* ── Book stage ─────────────────────────────────────────────────────── */}
+      {/* ── Book stage ───────────────────────────────────────────────────── */}
       <div
         ref={bookScope}
         style={{
@@ -162,7 +179,7 @@ export default function Book({ onClose }) {
           pointerEvents: "none",
         }} />
 
-        {/* ── UNDERLAY (page revealed underneath) ─────────────────────────── */}
+        {/* ── UNDERLAY ─────────────────────────────────────────────────── */}
         <div style={{
           position: "absolute", inset: 0, zIndex: 1,
           borderRadius: "3px 8px 8px 3px",
@@ -186,7 +203,7 @@ export default function Book({ onClose }) {
           }} />
         </div>
 
-        {/* ── FLIP CARD ───────────────────────────────────────────────────── */}
+        {/* ── FLIP CARD ────────────────────────────────────────────────── */}
         <motion.div
           style={{
             position: "absolute", inset: 0,
@@ -256,81 +273,105 @@ export default function Book({ onClose }) {
           pointerEvents: "none",
         }} />
 
-        {/* ── Nav click zones — 30% width, full height, thumb-friendly ──── */}
-        <ClickZone side="left"  onClick={goPrev} disabled={currentPage === 0 || isFlipping}          direction="left" />
-        <ClickZone side="right" onClick={goNext} disabled={isLastPage   || isFlipping} direction="right" />
+        {/* ── Nav click zones ───────────────────────────────────────────── */}
+        <ClickZone
+          side="left"
+          onClick={goPrev}
+          disabled={currentPage === 0 || isFlipping}
+          direction="left"
+        />
+        {/* Right zone hidden on letter page — instead show "close" indicator */}
+        {!isLetterPage && (
+          <ClickZone
+            side="right"
+            onClick={goNext}
+            disabled={isLastPage || isFlipping}
+            direction="right"
+          />
+        )}
 
-        {/* ── Replay (last page) ────────────────────────────────────────── */}
+        {/* ── Letter page close indicator ───────────────────────────────── */}
         <AnimatePresence>
-          {isLastPage && !isFlipping && (
+          {isLetterPage && letterRevealed && !isFlipping && (
             <motion.button
-              key="replay"
-              initial={{ opacity: 0, y: 8 }}
+              key="letter-close"
+              initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 8 }}
-              transition={{ delay: 1.4, duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
-              onClick={replay}
-              title="Rewind to beginning"
-              whileTap={{ scale: 0.9, transition: { duration: 0.08 } }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
+              onClick={onClose}
+              whileTap={{ scale: 0.92, transition: { duration: 0.08 } }}
               style={{
                 position: "absolute",
-                // Top-right, large enough for thumb on mobile
-                top: "0.8rem", right: "0.8rem",
-                background: "rgba(26,18,8,0.8)",
-                border: "1px solid var(--col-amber-dim)",
-                borderRadius: "3px",
+                bottom: "clamp(1rem, 4%, 2rem)",
+                left: "50%",
+                transform: "translateX(-50%)",
+                background: "none",
+                border: "none",
                 cursor: "pointer",
-                color: "var(--col-amber)",
-                fontFamily: "var(--font-body)",
-                fontSize: "clamp(0.62rem, 1.6vw, 0.72rem)",
-                letterSpacing: "0.2em",
-                textTransform: "uppercase",
-                padding: "0.55rem 0.9rem",
-                minHeight: 44,
                 display: "flex",
+                flexDirection: "column",
                 alignItems: "center",
-                opacity: 0.85,
+                gap: "0.5rem",
                 zIndex: 10,
                 WebkitTapHighlightColor: "transparent",
                 outline: "none",
+                minHeight: 44,
+                padding: "0.5rem 1.5rem",
               }}
             >
-              ↺ Rewind
+              {/* Pulsing chevron */}
+              <motion.span
+                animate={{ opacity: [0.4, 0.9, 0.4] }}
+                transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
+                style={{
+                  fontFamily: "var(--font-body)",
+                  fontSize: "clamp(0.55rem, 1.4vw, 0.68rem)",
+                  letterSpacing: "0.22em",
+                  textTransform: "lowercase",
+                  color: "#7a5030",
+                  opacity: 0.7,
+                }}
+              >
+                close the book
+              </motion.span>
             </motion.button>
           )}
         </AnimatePresence>
 
-        {/* ── Close button ─────────────────────────────────────────────── */}
-        <motion.button
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1.1, duration: 0.6 }}
-          onClick={onClose}
-          title="Close book"
-          whileTap={{ scale: 0.9, transition: { duration: 0.08 } }}
-          style={{
-            position: "absolute",
-            top: "0.8rem", left: "0.9rem",
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            color: "var(--col-text-dim)",
-            fontFamily: "var(--font-body)",
-            fontSize: "clamp(0.62rem, 1.6vw, 0.75rem)",
-            letterSpacing: "0.2em",
-            textTransform: "uppercase",
-            opacity: 0.65,
-            zIndex: 10,
-            padding: "0.55rem 0.3rem",
-            minHeight: 44,
-            display: "flex",
-            alignItems: "center",
-            WebkitTapHighlightColor: "transparent",
-            outline: "none",
-          }}
-        >
-          ← Close
-        </motion.button>
+        {/* ── Close button (top-left, all non-letter pages) ─────────────── */}
+        {!isLetterPage && (
+          <motion.button
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 1.1, duration: 0.6 }}
+            onClick={onClose}
+            title="Close book"
+            whileTap={{ scale: 0.9, transition: { duration: 0.08 } }}
+            style={{
+              position: "absolute",
+              top: "0.8rem", left: "0.9rem",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "var(--col-text-dim)",
+              fontFamily: "var(--font-body)",
+              fontSize: "clamp(0.62rem, 1.6vw, 0.75rem)",
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              opacity: 0.65,
+              zIndex: 10,
+              padding: "0.55rem 0.3rem",
+              minHeight: 44,
+              display: "flex",
+              alignItems: "center",
+              WebkitTapHighlightColor: "transparent",
+              outline: "none",
+            }}
+          >
+            ← Close
+          </motion.button>
+        )}
       </div>
 
       <ProgressIndicator total={totalPages} current={currentPage} />
@@ -380,7 +421,7 @@ function AgedPaperReverse() {
   );
 }
 
-/* ─── CLICK ZONE — 30% wide, full height, thumb-friendly ─────────────────── */
+/* ─── CLICK ZONE ─────────────────────────────────────────────────────────── */
 function ClickZone({ side, onClick, disabled, direction }) {
   if (disabled) return null;
 
@@ -394,7 +435,6 @@ function ClickZone({ side, onClick, disabled, direction }) {
         position: "absolute",
         top: 0, bottom: 0,
         [side]: 0,
-        // 30% on desktop, slightly more on mobile — thumb-friendly
         width: "30%",
         background: "none",
         border: "none",
@@ -404,7 +444,6 @@ function ClickZone({ side, onClick, disabled, direction }) {
         alignItems: "center",
         justifyContent: side === "left" ? "flex-start" : "flex-end",
         padding: "0 clamp(0.5rem, 2.5vw, 0.9rem)",
-        transformStyle: "flat",
         WebkitTapHighlightColor: "transparent",
         outline: "none",
       }}
@@ -413,7 +452,7 @@ function ClickZone({ side, onClick, disabled, direction }) {
       <motion.div
         aria-hidden="true"
         variants={{
-          rest: { opacity: 0, scaleY: 0.4 },
+          rest:  { opacity: 0, scaleY: 0.4 },
           hover: { opacity: 1, scaleY: 1, transition: { duration: 0.22, ease: [0.16,1,0.3,1] } },
           tap:   { opacity: 0.5, scaleY: 0.7 },
         }}
@@ -429,11 +468,11 @@ function ClickZone({ side, onClick, disabled, direction }) {
         }}
       />
 
-      {/* Page-lift backlight hint */}
+      {/* Page-lift backlight */}
       <motion.div
         aria-hidden="true"
         variants={{
-          rest: { opacity: 0 },
+          rest:  { opacity: 0 },
           hover: { opacity: 1, transition: { duration: 0.3 } },
           tap:   { opacity: 0.3 },
         }}
@@ -446,11 +485,11 @@ function ClickZone({ side, onClick, disabled, direction }) {
         }}
       />
 
-      {/* Arrow chevron */}
+      {/* Chevron */}
       <motion.span
         aria-hidden="true"
         variants={{
-          rest: { opacity: 0, x: direction === "left" ? 10 : -10, scale: 0.8 },
+          rest:  { opacity: 0, x: direction === "left" ? 10 : -10, scale: 0.8 },
           hover: { opacity: 1, x: 0, scale: 1, transition: { duration: 0.22, ease: [0.16,1,0.3,1] } },
           tap:   { opacity: 0.7, scale: 0.9, x: direction === "left" ? -2 : 2 },
         }}
